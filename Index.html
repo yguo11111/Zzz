@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>加強版2D射擊遊戲</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: lightblue; }
+        canvas { display: block; margin: 0 auto; }
+        #leaderboard, #chat { position: absolute; top: 10px; left: 10px; color: black; width: 300px; }
+        #chat { max-height: 200px; overflow-y: scroll; }
+        #chatInput { width: 100%; }
+    </style>
+</head>
+<body>
+    <div id="leaderboard"></div>
+    <div id="chat"></div>
+    <input type="text" id="chatInput" placeholder="發送消息" />
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        let player;
+        let bullets = [];
+        let enemies = [];
+        let score = 0;
+        let leaderboard = JSON.parse(localStorage.getItem("leaderboard")) || [];
+        let chatMessages = [];
+        let shootingCooldown = false;
+        let bgMusic = new Audio("https://www.soundjay.com/button/sounds/button-24.mp3");
+        let shootSound = new Audio("https://www.soundjay.com/button/sounds/button-9.mp3");
+        bgMusic.loop = true;
+        bgMusic.volume = 0.1;
+        bgMusic.play();
+        let gameTime = 0;
+        let bossSpawned = false;
+
+        document.getElementById("chatInput").addEventListener("keypress", function(e) {
+            if (e.key === 'Enter') {
+                const message = this.value;
+                if (message) {
+                    chatMessages.push(`玩家: ${message}`);
+                    this.value = '';
+                    updateChat();
+                }
+            }
+        });
+
+        function drawPlayer() {
+            ctx.fillStyle = "green";
+            ctx.fillRect(player.x, player.y, player.width, player.height);
+        }
+
+        function drawBullets() {
+            ctx.fillStyle = "red";
+            bullets.forEach(bullet => {
+                ctx.fillRect(bullet.x, bullet.y, bullet.width, bullet.height);
+            });
+        }
+
+        function drawEnemies() {
+            ctx.fillStyle = "black";
+            enemies.forEach(enemy => {
+                ctx.fillRect(enemy.x, enemy.y, enemy.width, enemy.height);
+            });
+        }
+
+        function drawScore() {
+            ctx.fillStyle = "black";
+            ctx.font = "20px Arial";
+            ctx.fillText("分數: " + score, 10, 30);
+        }
+
+        function drawLeaderboard() {
+            const leaderboardDiv = document.getElementById("leaderboard");
+            leaderboardDiv.innerHTML = "<h3>排行榜</h3>" + leaderboard.map((entry, i) => `<div>${i + 1}. ${entry.name}: ${entry.score}</div>`).join("");
+        }
+
+        function updateChat() {
+            const chatDiv = document.getElementById("chat");
+            chatDiv.innerHTML = chatMessages.map(msg => `<div>${msg}</div>`).join("");
+            chatDiv.scrollTop = chatDiv.scrollHeight;
+        }
+
+        function shoot() {
+            if (shootingCooldown) return;
+            bullets.push({ x: player.x + player.width / 2 - 2, y: player.y, width: 4, height: 10 });
+            shootSound.play();
+            shootingCooldown = true;
+            setTimeout(() => shootingCooldown = false, 300);
+        }
+
+        function spawnEnemy() {
+            const enemyWidth = 30;
+            const enemyX = Math.random() * (canvas.width - enemyWidth);
+            enemies.push({ x: enemyX, y: 0, width: enemyWidth, height: 30 });
+        }
+
+        function spawnBoss() {
+            if (!bossSpawned) {
+                enemies.push({ x: canvas.width / 2 - 40, y: 0, width: 80, height: 80, isBoss: true });
+                bossSpawned = true;
+            }
+        }
+
+        function update() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawPlayer();
+            drawBullets();
+            drawEnemies();
+            drawScore();
+
+            bullets.forEach((bullet, bIndex) => {
+                bullet.y -= 10;
+                if (bullet.y < 0) bullets.splice(bIndex, 1);
+                enemies.forEach((enemy, eIndex) => {
+                    if (bullet.x < enemy.x + enemy.width && bullet.x + bullet.width > enemy.x && 
+                        bullet.y < enemy.y + enemy.height && bullet.y + bullet.height > enemy.y) {
+                        score++;
+                        bullets.splice(bIndex, 1);
+                        enemies.splice(eIndex, 1);
+                    }
+                });
+            });
+
+            enemies.forEach((enemy, index) => {
+                enemy.y += 2;
+                if (enemy.y > canvas.height) enemies.splice(index, 1);
+                if (enemy.isBoss) {
+                    ctx.fillStyle = "purple";
+                    ctx.fillRect(enemy.x, enemy.y, enemy.width, enemy.height);
+                    ctx.fillText("周家雯", enemy.x + 5, enemy.y + 30);
+                }
+            });
+
+            if (Math.random() < 0.02) spawnEnemy();
+            if (gameTime > 30 && !bossSpawned) spawnBoss();
+
+            gameTime += 0.05; // Increment game time
+            drawLeaderboard();
+            requestAnimationFrame(update);
+        }
+
+        window.addEventListener("resize", () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            if (player) player.x = canvas.width / 2;
+        });
+
+        window.addEventListener("keydown", (e) => {
+            switch(e.key) {
+                case "ArrowRight":
+                    player.x += player.speed;
+                    break;
+                case "ArrowLeft":
+                    player.x -= player.speed;
+                    break;
+                case "ArrowUp":
+                    shoot();
+                    break;
+                case "Enter":
+                    if (player) updateLeaderboard(player.name, score);
+                    break;
+            }
+            player.x = Math.max(0, Math.min(canvas.width - player.width, player.x));
+        });
+
+        function updateLeaderboard(name, score) {
+            const newEntry = { name: name || `玩家${leaderboard.length + 1}`, score: Math.round(score / (gameTime / 60)) }; // Average score
+            leaderboard.push(newEntry);
+            leaderboard.sort((a, b) => b.score - a.score);
+            if (leaderboard.length > 5) leaderboard.pop();
+            localStorage.setItem("leaderboard", JSON.stringify(leaderboard));
+            drawLeaderboard();
+        }
+
+        function selectCharacter() {
+            const characters = ["角色1", "角色2", "角色3"];
+            const selectedCharacter = prompt("選擇角色: " + characters.join(", "));
+            player = { x: canvas.width / 2, y: canvas.height - 50, width: 30, height: 30, speed: 5, name: selectedCharacter };
+            update();
+        }
+
+        selectCharacter(); // Start the game by selecting a character
+    </script>
+</body>
+</html>
